@@ -39,6 +39,7 @@ class BuildOptions:
     no_gitignore: bool = False
     profile: str = "generic"
     bundle_name: str = "context-bundle"
+    write_handoff: bool = True
 
 
 def normalize_ext(ext: str) -> str:
@@ -57,12 +58,16 @@ def build_context_bundle(options: BuildOptions) -> BuildResult:
     options.output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = options.output_dir / f"{options.bundle_name}.md"
     manifest_path = options.output_dir / f"{options.bundle_name}.manifest.json"
+    handoff_path = options.output_dir / f"{options.bundle_name}.handoff.md" if options.write_handoff else None
 
     markdown = render_markdown_bundle(scan, options, manifest_path.name)
-    manifest = render_manifest(scan, options, markdown_path.name)
+    handoff = render_handoff(scan, options, markdown_path.name, manifest_path.name) if handoff_path else ""
+    manifest = render_manifest(scan, options, markdown_path.name, handoff_path.name if handoff_path else None)
 
     markdown_path.write_text(markdown, encoding="utf-8")
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if handoff_path:
+        handoff_path.write_text(handoff, encoding="utf-8")
 
     if options.fail_on_secret and any("secret" in warning.lower() or "credential" in warning.lower() for warning in scan.warnings):
         raise RuntimeError("Potential secrets were detected. Outputs were written with secret-like files excluded.")
@@ -70,6 +75,7 @@ def build_context_bundle(options: BuildOptions) -> BuildResult:
     return BuildResult(
         markdown_path=markdown_path,
         manifest_path=manifest_path,
+        handoff_path=handoff_path,
         included_count=len(scan.included),
         excluded_count=len(scan.excluded),
         estimated_tokens=scan.estimated_tokens,
@@ -233,9 +239,83 @@ def render_markdown_bundle(scan: ScanResult, options: BuildOptions, manifest_nam
     return "\n".join(lines)
 
 
-def render_manifest(scan: ScanResult, options: BuildOptions, markdown_name: str) -> Manifest:
+def render_handoff(scan: ScanResult, options: BuildOptions, markdown_name: str, manifest_name: str) -> str:
+    """Render a compact continuation prompt for an AI coding agent."""
+
+    top_files = sorted(scan.included, key=lambda item: item.estimated_tokens, reverse=True)[:12]
+    warnings = scan.warnings[:10]
+    excluded = scan.excluded[:12]
+    lines = [
+        "# AI Agent Context Handoff",
+        "",
+        f"- Repository: `{scan.root.name}`",
+        f"- Root: `{scan.root}`",
+        f"- Profile: `{options.profile}`",
+        f"- Markdown bundle: `{markdown_name}`",
+        f"- JSON manifest: `{manifest_name}`",
+        f"- Included files: `{len(scan.included)}`",
+        f"- Excluded files: `{len(scan.excluded)}`",
+        f"- Estimated tokens: `{scan.estimated_tokens}` / `{options.token_budget}`",
+        f"- Total characters: `{scan.total_chars}`",
+        f"- Budget truncated: `{str(scan.truncated_by_budget).lower()}`",
+        "",
+        "## Recommended Start",
+        "",
+        "1. Read the Markdown bundle file first.",
+        "2. Use the JSON manifest to audit included and excluded files before assuming repository behavior.",
+        "3. Treat warnings and budget truncation as uncertainty that must be resolved with repository inspection.",
+        "4. Ask for missing files instead of guessing when an excluded file is relevant to the task.",
+        "",
+        "## Largest Included Files",
+        "",
+    ]
+    if top_files:
+        for file in top_files:
+            lines.append(f"- `{file.path}`: {file.estimated_tokens} est. tokens, {file.char_count} chars, sha `{file.sha256[:12]}`")
+    else:
+        lines.append("- None.")
+
+    lines.extend(["", "## Warnings", ""])
+    if warnings:
+        lines.extend(f"- {warning}" for warning in warnings)
+    else:
+        lines.append("- None.")
+
+    lines.extend(["", "## Notable Exclusions", ""])
+    if excluded:
+        for item in excluded:
+            size = "" if item.size_bytes is None else f", {item.size_bytes} bytes"
+            lines.append(f"- `{item.path}`: {item.reason}{size}")
+    else:
+        lines.append("- None.")
+
+    lines.extend(
+        [
+            "",
+            "## Copyable Agent Prompt",
+            "",
+            "```text",
+            f"You are working in repository `{scan.root.name}` with a prebuilt AI context bundle.",
+            f"Read `{markdown_name}` for the bundled source context and `{manifest_name}` for the audit trail.",
+            f"Profile: {options.profile}. Estimated context size: {scan.estimated_tokens} tokens out of budget {options.token_budget}.",
+            "Before editing, review warnings, notable exclusions, and budget truncation.",
+            "Do not assume behavior from excluded files. Ask for or inspect missing files when they affect the task.",
+            "When you finish, report which bundled files were relevant, which excluded files you had to inspect, and which validation commands you ran.",
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_manifest(scan: ScanResult, options: BuildOptions, markdown_name: str, handoff_name: Optional[str] = None) -> Manifest:
     """Render a JSON-serializable manifest."""
 
+    outputs = {
+        "markdown": markdown_name,
+    }
+    if handoff_name:
+        outputs["handoff"] = handoff_name
     return {
         "schema_version": "1.0",
         "tool": "ai-agent-context-kit",
@@ -245,9 +325,7 @@ def render_manifest(scan: ScanResult, options: BuildOptions, markdown_name: str)
             "name": scan.root.name,
             "root": str(scan.root),
         },
-        "outputs": {
-            "markdown": markdown_name,
-        },
+        "outputs": outputs,
         "budgets": {
             "token_budget": options.token_budget,
             "char_budget": options.char_budget,

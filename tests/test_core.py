@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ai_agent_context_kit.core import BuildOptions, build_context_bundle, normalize_ext, scan_repository
+from ai_agent_context_kit.core import BuildOptions, build_context_bundle, normalize_ext, render_handoff, scan_repository
 
 
 class CoreTests(unittest.TestCase):
@@ -85,9 +85,36 @@ class CoreTests(unittest.TestCase):
             build_result = build_context_bundle(BuildOptions(root=root, output_dir=output, profile="codex"))
             self.assertTrue(build_result.markdown_path.exists())
             self.assertTrue(build_result.manifest_path.exists())
+            self.assertIsNotNone(build_result.handoff_path)
+            self.assertTrue(build_result.handoff_path.exists())
             manifest = json.loads(build_result.manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["profile"], "codex")
+            self.assertEqual(manifest["outputs"]["handoff"], "context-bundle.handoff.md")
             self.assertEqual(manifest["included_files"][0]["path"], "README.md")
+
+    def test_build_can_disable_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("# hello\n", encoding="utf-8")
+            output = root / "bundle"
+            build_result = build_context_bundle(BuildOptions(root=root, output_dir=output, write_handoff=False))
+            self.assertIsNone(build_result.handoff_path)
+            self.assertFalse((output / "context-bundle.handoff.md").exists())
+            manifest = json.loads(build_result.manifest_path.read_text(encoding="utf-8"))
+            self.assertNotIn("handoff", manifest["outputs"])
+
+    def test_render_handoff_contains_agent_prompt_and_warnings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("# hello\n", encoding="utf-8")
+            (root / "large.txt").write_text("x" * 20, encoding="utf-8")
+            options = BuildOptions(root=root, output_dir=root / ".aictx", max_file_bytes=5)
+            scan = scan_repository(options)
+            handoff = render_handoff(scan, options, "context-bundle.md", "context-bundle.manifest.json")
+            self.assertIn("AI Agent Context Handoff", handoff)
+            self.assertIn("Copyable Agent Prompt", handoff)
+            self.assertIn("Excluded large file", handoff)
+            self.assertIn("large.txt", handoff)
 
 
 if __name__ == "__main__":

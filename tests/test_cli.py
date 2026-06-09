@@ -14,8 +14,18 @@ class CliTests(unittest.TestCase):
             exit_code = main([str(root), "--output-dir", "ctx", "--name", "demo", "--include-ext", "py"])
             self.assertEqual(exit_code, 0)
             self.assertTrue((root / "ctx" / "demo.md").exists())
+            self.assertTrue((root / "ctx" / "demo.handoff.md").exists())
             manifest = json.loads((root / "ctx" / "demo.manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["included_files"][0]["path"], "app.py")
+            self.assertEqual(manifest["outputs"]["handoff"], "demo.handoff.md")
+
+    def test_cli_can_disable_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("print('hi')\n", encoding="utf-8")
+            exit_code = main([str(root), "--output-dir", "ctx", "--name", "demo", "--include-ext", "py", "--no-handoff"])
+            self.assertEqual(exit_code, 0)
+            self.assertFalse((root / "ctx" / "demo.handoff.md").exists())
 
     def test_cli_fail_on_secret_returns_nonzero(self):
         with tempfile.TemporaryDirectory() as tmp:

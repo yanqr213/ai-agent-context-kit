@@ -49,6 +49,7 @@ class BuildResult:
 
     markdown_path: Path
     manifest_path: Path
+    handoff_path: Optional[Path]
     included_count: int
     excluded_count: int
     estimated_tokens: int

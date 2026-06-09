@@ -37,6 +37,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         no_gitignore=args.no_gitignore,
         profile=args.profile,
         bundle_name=args.name,
+        write_handoff=not args.no_handoff,
     )
 
     try:
@@ -47,6 +48,8 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     print(f"Markdown bundle: {result.markdown_path}")
     print(f"JSON manifest: {result.manifest_path}")
+    if result.handoff_path:
+        print(f"Agent handoff: {result.handoff_path}")
     print(f"Included files: {result.included_count}")
     print(f"Excluded files: {result.excluded_count}")
     print(f"Estimated tokens: {result.estimated_tokens}")
@@ -81,6 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-gitignore", action="store_true", help="Ignore default .gitignore file.")
     parser.add_argument("--include-secret-files", action="store_true", help="Include files with potential secret findings, with warnings.")
     parser.add_argument("--fail-on-secret", action="store_true", help="Exit non-zero if potential secrets are detected.")
+    parser.add_argument("--no-handoff", action="store_true", help="Do not write the agent handoff Markdown file.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 

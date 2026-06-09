@@ -14,7 +14,7 @@ class SafetyTests(unittest.TestCase):
         findings = detect_secret_findings("API_" + "KEY=abcd1234\n")
         self.assertTrue(findings)
 
-    def test_detects_fine_grained_github_pat_shape(self):
+    def test_detects_fine_grained_github_token_shape(self):
         fake_pat = "github_" + "pat_" + ("A" * 44)
         findings = detect_secret_findings(fake_pat)
         self.assertTrue(findings)

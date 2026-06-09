@@ -2,7 +2,7 @@
 
 `ai-agent-context-kit` 是一个零运行时依赖的 Python CLI，用来把一个代码仓库整理成可控大小、可审计、可复现的 AI 编程上下文包。
 
-它面向使用 Codex、Claude Code、ChatGPT、Cursor 等 AI 编程工具的开发者：当你需要让模型快速理解一个仓库时，可以先生成一份 Markdown bundle 和 JSON manifest，而不是在每个会话里反复解释项目背景。
+它面向使用 Codex、Claude Code、ChatGPT、Cursor 等 AI 编程工具的开发者：当你需要让模型快速理解一个仓库时，可以先生成一份 Markdown bundle、JSON manifest 和可复制的 agent handoff prompt，而不是在每个会话里反复解释项目背景。
 
 ## 适用场景
 
@@ -16,6 +16,7 @@
 
 - 扫描仓库文件并生成 Markdown 上下文包。
 - 生成 JSON manifest，记录 included/excluded 文件、预算、hash、警告和筛选条件。
+- 生成 `*.handoff.md`，把上下文包转换成下一轮 agent 可直接使用的启动说明和复制型 prompt。
 - 遵守 `.gitignore` 风格忽略规则，并内置常见目录和二进制类型排除。
 - 支持按扩展名、路径 glob、最大文件大小筛选。
 - 支持字符预算和简易 token 预算估算。
@@ -58,6 +59,7 @@ aictx . --profile codex
 ```text
 .aictx/context-bundle.md
 .aictx/context-bundle.manifest.json
+.aictx/context-bundle.handoff.md
 ```
 
 给 Claude Code 生成较小上下文：
@@ -98,6 +100,7 @@ aictx [ROOT]
   --no-gitignore              不读取仓库 .gitignore
   --include-secret-files      包含疑似密钥文件，但写出警告
   --fail-on-secret            检测到疑似密钥时返回非零状态
+  --no-handoff                不生成 agent handoff Markdown
 ```
 
 ## 输出格式
@@ -138,6 +141,14 @@ JSON manifest 包含：
 }
 ```
 
+Agent handoff 包含：
+
+- bundle 和 manifest 的文件名。
+- profile、预算、included/excluded 数量和是否因预算截断。
+- 最大的 included files，便于模型先理解上下文重心。
+- warnings 和 notable exclusions，提醒 agent 不要对被排除文件做假设。
+- 一段可复制到 Codex/Claude Code/Cursor 的启动 prompt。
+
 ## 隐私与安全边界
 
 - 工具不会读取或请求 GitHub token，也不会推送 GitHub。
@@ -153,7 +164,9 @@ JSON manifest 包含：
 
 ```yaml
 - name: Build context bundle
-  run: python -m ai_agent_context_kit.cli . --fail-on-secret --token-budget 60000
+  run: |
+    python -m ai_agent_context_kit.cli . --fail-on-secret --token-budget 60000
+    test -f .aictx/context-bundle.handoff.md
 ```
 
 这可以确保上下文包能够在干净环境中生成，并在潜在密钥被检测到时失败。
@@ -176,7 +189,7 @@ python -m ai_agent_context_kit.cli . --profile codex --output-dir .aictx
 
 `ai-agent-context-kit` is a zero-runtime-dependency Python CLI for building auditable and reproducible prompt/context bundles from a repository.
 
-It helps developers using Codex, Claude Code, ChatGPT, Cursor, and similar AI coding tools provide the right repository context without repeatedly explaining the project. The tool scans text files, respects `.gitignore`-style rules, applies extension/path filters, estimates character and token budgets, excludes large/binary/secret-like files by default, and writes both a Markdown bundle and a JSON manifest.
+It helps developers using Codex, Claude Code, ChatGPT, Cursor, and similar AI coding tools provide the right repository context without repeatedly explaining the project. The tool scans text files, respects `.gitignore`-style rules, applies extension/path filters, estimates character and token budgets, excludes large/binary/secret-like files by default, and writes a Markdown bundle, a JSON manifest, and an agent handoff prompt.
 
 Basic usage:
 
@@ -190,7 +203,10 @@ Outputs:
 ```text
 .aictx/context-bundle.md
 .aictx/context-bundle.manifest.json
+.aictx/context-bundle.handoff.md
 ```
+
+The handoff file summarizes bundle paths, budget state, largest included files, warnings, notable exclusions, and a copyable prompt for the next Codex/Claude Code/Cursor session. Use `--no-handoff` when a CI job only needs the bundle and manifest.
 
 Security model:
 
